@@ -3,155 +3,136 @@ import random
 import tensorflow as tf
 import pandas as pd
 from tensorflow.keras import layers, models
+from tensorflow.keras.losses import BinaryCrossentropy
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import OneHotEncoder
+import argparse
+from sklearn.model_selection import train_test_split
+import numpy as np
 
 
-# Step 1: Define parameters
-batch_size = 4
-imHeight = 256
-imWid = 256
-nClass = 2
+def parse_arguments():
+    """Parses command-line arguments for training the CNN."""
+    parser = argparse.ArgumentParser(description="Train a CNN for bed bug classification.")
+    parser.add_argument('--batch_size', type=int, default=4, help="Batch size for training.")
+    parser.add_argument('--im_height', type=int, default=256, help="Height of input images.")
+    parser.add_argument('--im_width', type=int, default=256, help="Width of input images.")
+    parser.add_argument('--path', type=str, help="Path to the dataset directory.")
+    parser.add_argument('--test_size', type=float, default=0.2, help="Proportion of the dataset to include in the test split.")
+    parser.add_argument('--val_size', type=float, default=0.2, help="Proportion of the dataset to include in the validation split.")
+    parser.add_argument('--random_state', type=int, default=1234, help="Random state for reproducibility.")
+    parser.add_argument('--epochs', type=int, default=10, help="Number of epochs to train the model.")
+    parser.add_argument('--learning_rate', type=float, default=0.001, help="Learning rate for the optimizer.")
+    return parser.parse_args()
 
-# Step 2: Define data preprocessing function
-
-
-def preprocess_image(image_path, label):
+def load_image(image_path, label, imHeight, imWid):
+    """Reads an image from a file, decides it, resizes it, and normalizes the pixel values."""
     image = tf.io.read_file(image_path)
     image = tf.image.decode_jpeg(image, channels=3)
     image = tf.image.resize(image, [imHeight, imWid])
     image = tf.cast(image, tf.float32) / 255.0  # Normalize to [0,1]
     return image, label
 
+def get_paths_labels(X, metadata, inpath):
+    """Gets the image paths and labels for a given set of subjects."""
+    image_paths = []
+    image_labels = []
+    for subject in X:
+        paths = metadata[metadata['subject'] == subject]['Filename'].tolist()
+        paths = [os.path.join(inpath, path) for path in paths]
+        labels = metadata[metadata['subject'] == subject]['species'].tolist()
+        image_paths.extend(paths)
+        image_labels.extend(labels)
+    return image_paths, image_labels
 
-# Step 2a: Load and preprocess the training dataset
-picPath = "/Users/sophiemaedo/work/bed_bug_photos"
-metaData = []
-# load in metadata
-metaData = pd.read_csv(picPath+"/image_metadata.csv")
-# print(metaData["species"])
-train_image_paths = []
-train_labels = []
+def encode_labels(labels):
+    """Encodes string labels into integer vectors."""
+    labels = np.array(labels)
+    encoded = (labels == "lectularius").astype(int)
+    return encoded
 
+def prepare_data(path, test_size, val_size, random_state, imHeight, imWid, inpath):
+    """Prepares the training, validation, and test datasets."""
 
-tLectStartI = []
-tHemiStartI = []
+    # Load metadata
+    metadata = pd.read_csv(os.path.join(path, "image_metadata.csv"))
 
+    # get unique subjects and split them into training, validation, and test sets, keeping class numbers equal. 
+    hemipterus = metadata[metadata['species'] == 'hemipterus']['subject'].unique()
+    lectularius = metadata[metadata['species'] == 'lectularius']['subject'].unique()
+    labels = ['hemipterus'] * len(hemipterus) + ['lectularius'] * len(lectularius)
+    subjects = hemipterus.tolist() + lectularius.tolist()
+    
+    X_train, X_temp, y_train, y_temp = train_test_split(subjects, labels, test_size=test_size + val_size, stratify = labels, random_state = random_state)
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=(test_size / (test_size + val_size )), stratify = y_temp, random_state = random_state)
+    print(f"Training subjects: {len(X_train)}"
+          f"\nValidation subjects: {len(X_val)}"
+          f"\nTest subjects: {len(X_test)}")
 
-# finds path for lect training subjecta
-for i in range(34, 40):
-    train_image_paths.append(
-        metaData.loc[metaData['subject'] == i, ["Filename"]])
-    train_labels.append(
-        metaData.loc[lambda df: df['subject'] == i, ["species"]])
+    # get filenames and labels for training, validation, and test sets
+    train_image_paths = []
+    train_image_labels = []
+    train_image_paths, train_image_labels = get_paths_labels(X_train, metadata, inpath)
+    val_image_paths, val_image_labels = get_paths_labels(X_val, metadata, inpath)
+    test_image_paths, test_image_labels = get_paths_labels(X_test, metadata, inpath)
+    with open("data_split.txt", "w") as f:
+        f.write(f"Training subjects: {X_train}\n")
+        f.write(f"Validation subjects: {X_val}\n")
+        f.write(f"Test subjects: {X_test}\n")
 
-# finds path for hemi training subjecta
-for i in range(1, 8):
-    train_image_paths.append(
-        metaData.loc[lambda df: df['subject'] == i, ["Filename"]])
-    train_labels.append(
-        metaData.loc[lambda df: df['subject'] == i, ["species"]])
+    # Encode labels
+    train_image_labels = encode_labels(train_image_labels)
+    val_image_labels = encode_labels(val_image_labels)
+    test_image_labels = encode_labels(test_image_labels)
 
-random.seed(42)
+    # creeate data
+    training_data = tf.data.Dataset.from_tensor_slices((train_image_paths, train_image_labels))
+    validation_data = tf.data.Dataset.from_tensor_slices((val_image_paths, val_image_labels))
+    test_data = tf.data.Dataset.from_tensor_slices((test_image_paths, test_image_labels))
 
-train_image_paths = pd.concat(train_image_paths)
+    training_data = training_data.map(lambda x, y: load_image(x, y, imHeight, imWid), num_parallel_calls=tf.data.AUTOTUNE)
+    validation_data = validation_data.map(lambda x, y: load_image(x, y, imHeight, imWid), num_parallel_calls=tf.data.AUTOTUNE)
 
+    return(training_data, validation_data, test_data)
 
-train_labels = pd.concat(train_labels)
-# Shuffles training set
-indMapping = [i for i in range(len(train_labels))]
-random.shuffle(indMapping)
-train_image_paths = train_image_paths.iloc[indMapping]
-pd.set_option('future.no_silent_downcasting', True)
-trainOneHot = train_labels.replace("lectularius", 0)
-trainOneHot = trainOneHot.replace("hemipterus", 1)
-# convert pd dataframe into a list
-trainOneHot = list(trainOneHot.to_numpy().flatten())
-train_image_paths = list(train_image_paths.to_numpy().flatten())
+def build_cnn(imHeight, imWid):
+    model = models.Sequential([
+        layers.Conv2D(45, (3, 3), activation='relu',
+                      input_shape=(imHeight, imWid, 3)),
+        layers.MaxPooling2D((2, 2)),
+        layers.Conv2D(30, (3, 3), activation='relu'),
+        layers.MaxPooling2D((2, 2)),
+        layers.Flatten(),
+        layers.Dense(64, activation='relu'),
+        layers.Dropout(0.2),
+        layers.Dense(32, activation='relu'),
+        layers.Dense(1, activation='sigmoid')
+    ])
+    return model
 
-trainDf = tf.data.Dataset.from_tensor_slices((train_image_paths, trainOneHot))
-trainDf = trainDf.map(preprocess_image)
-trainDf = trainDf.shuffle(buffer_size=len(train_image_paths)).batch(batch_size)
+def fit_cnn(model, training_data, validation_data, epochs, batch_size, learning_rate):
+    training_data = training_data.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    validation_data = validation_data.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+                  loss='binary_crossentropy',
+                  metrics=['accuracy'])
+    print(model.summary())
+    history = model.fit(training_data, epochs=epochs, validation_data=validation_data)
+    return history
 
+def main():
 
-# Step 2b: Load and preprocess the Validation dataset
-val_image_paths = []
-val_labels = []
+    # Parse command-line arguments.
+    args = parse_arguments()
 
-for i in range(40, 48):
+    # Divide data into training, validation, and test sets.
+    training_data, validation_data, test_data = prepare_data(args.path, args.test_size, args.val_size, args.random_state, args.im_height, args.im_width, args.path)
 
-    val_image_paths.append(
-        metaData.loc[metaData['subject'] == i, ["Filename"]])
-    val_labels.append(metaData.loc[lambda df: df['subject'] == i, ["species"]])
+    # build CNN
+    model = build_cnn(args.im_height, args.im_width)
 
+    # train CNN
+    history = fit_cnn(model, training_data, validation_data, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate)
 
-for i in range(8, 16):
-    val_image_paths.append(
-        metaData.loc[lambda df: df['subject'] == i, ["Filename"]])
-    val_labels.append(metaData.loc[lambda df: df['subject'] == i, ["species"]])
-
-val_image_paths = pd.concat(val_image_paths)
-val_labels = pd.concat(val_labels)
-
-# Shuffles validation set
-indMapping = [i for i in range(len(val_labels))]
-random.shuffle(indMapping)
-val_image_paths = val_image_paths.iloc[indMapping]
-pd.set_option('future.no_silent_downcasting', True)
-valOneHot = val_labels.replace("lectularius", 0)
-valOneHot = valOneHot.replace("hemipterus", 1)
-
-# convert pd dataframe into a list
-valOneHot = list(valOneHot.to_numpy().flatten())
-val_image_paths = list(val_image_paths.to_numpy().flatten())
-
-# Create TensorFlow Dataset for validation data
-valDf = tf.data.Dataset.from_tensor_slices((val_image_paths, valOneHot))
-valDf = valDf.map(preprocess_image)
-valDf = valDf.shuffle(buffer_size=len(val_image_paths)).batch(batch_size)
-
-
-# Step 3: Display some example images
-os.chdir(picPath)
-
-'''for images, labels in trainDf.take(1):  # Take 1 batch as an example
-    plt.figure(figsize=(10, 10))
-    for i in range(3):  # Display 3 example images
-        plt.imshow(images[i])
-        plt.title(f'Label: {labels[i]}')
-        plt.axis('off')
-    plt.show()'''
-
-
-# Step 4: Define the CNN model
-model = models.Sequential([
-    layers.Conv2D(45, (3, 3), activation='relu',
-                  input_shape=(imHeight, imWid, 3)),
-    layers.MaxPooling2D((2, 2)),
-    layers.Conv2D(30, (3, 3), activation='relu'),
-    layers.MaxPooling2D((2, 2)),
-    layers.Flatten(),
-    layers.Dense(64, activation='relu'),
-    layers.Dropout(0.2),
-    layers.Dense(32, activation='sigmoid'),
-    layers.Dense(nClass)
-
-])
-
-# Step 5: Compile the model
-model.compile(optimizer='adam',
-              loss=tf.keras.losses.SparseCategoricalCrossentropy(
-                  from_logits=True),
-              metrics=['accuracy'])
-model.summary()
-# Step 6: Train the model with validation data
-history = model.fit(trainDf, epochs=7, validation_data=valDf)
-
-# Step 7: Plot training and validation accuracy
-plt.plot(history.history['accuracy'], label='Training Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
-plt.ylim(0, 1)  # Set y-axis limit from 0 to 1
-plt.legend()
-plt.show()
+if __name__ == "__main__":
+    main()
