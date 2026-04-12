@@ -45,6 +45,18 @@ def get_paths_labels(X, metadata, inpath):
         image_labels.extend(labels)
     return image_paths, image_labels
 
+def get_inat_paths_labels(X, metadata, inpath):
+    """Gets the image paths and labels for a given set of subjects."""
+    image_paths = []
+    image_labels = []
+    for subject in X:
+        paths = metadata[metadata['subject'] == subject]['Filename'].tolist()
+        paths = [os.path.join(inpath, path) for path in paths]
+        labels = metadata[metadata['subject'] == subject]['species'].tolist()
+        image_paths.extend(paths)
+        image_labels.extend(labels)
+    return image_paths, image_labels
+
 def encode_labels(labels):
     """Encodes string labels into integer vectors."""
     labels = np.array(labels)
@@ -56,7 +68,9 @@ def prepare_data(path, test_size, val_size, random_state, imHeight, imWid, inpat
 
     # Load metadata
     metadata = pd.read_csv(os.path.join(path, "image_metadata.csv"))
-
+    metadataInatHemi = pd.read_csv(os.path.join(path, "Cimex_hemipterus_metadata.csv"))
+    metadataInatLect = pd.read_csv(os.path.join(path, "Cimex_lectularius_metadata.csv"))
+    
     # get unique subjects and split them into training, validation, and test sets, keeping class numbers equal. 
     hemipterus = metadata[metadata['species'] == 'hemipterus']['subject'].unique()
     lectularius = metadata[metadata['species'] == 'lectularius']['subject'].unique()
@@ -85,7 +99,7 @@ def prepare_data(path, test_size, val_size, random_state, imHeight, imWid, inpat
     val_image_labels = encode_labels(val_image_labels)
     test_image_labels = encode_labels(test_image_labels)
 
-    # creeate data
+    # create data
     training_data = tf.data.Dataset.from_tensor_slices((train_image_paths, train_image_labels))
     validation_data = tf.data.Dataset.from_tensor_slices((val_image_paths, val_image_labels))
     test_data = tf.data.Dataset.from_tensor_slices((test_image_paths, test_image_labels))
