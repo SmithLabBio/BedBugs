@@ -45,6 +45,8 @@ def get_paths_labels(X, metadata, inpath):
         image_labels.extend(labels)
     return image_paths, image_labels
 
+
+
 def encode_labels(labels):
     """Encodes string labels into integer vectors."""
     labels = np.array(labels)
@@ -55,7 +57,8 @@ def prepare_data(path, test_size, val_size, random_state, imHeight, imWid, inpat
     """Prepares the training, validation, and test datasets."""
 
     # Load metadata
-    metadata = pd.read_csv(os.path.join(path, "image_metadata.csv"))
+    metadata = pd.read_csv(os.path.join(path, "allMetadata.csv"))
+    
 
     # get unique subjects and split them into training, validation, and test sets, keeping class numbers equal. 
     hemipterus = metadata[metadata['species'] == 'hemipterus']['subject'].unique()
