@@ -14,6 +14,7 @@ def parse_arguments():
     parser.add_argument('--im_width', type=int, default=256, help="Width of input images.")
     parser.add_argument('--train_csv', type=str, help="Path to the training data.")
     parser.add_argument( "--val_csvs", nargs="*", default=[], help="Validation sets as name=path (e.g. sophie=path.csv inat=path.csv)" )
+    parser.add_argument('--save_path', type=str, default="cnn_model.keras", help="Path to save the trained model.")
     return parser.parse_args()
 
 def load_image(image_path, label, imHeight, imWid):
@@ -94,6 +95,10 @@ def main():
     for name, val_data in val_data_dict.items():
         print(f"Evaluating on {name} validation set:")
         evaluate_cnn(model, val_data)
+
+    # save model
+    model.save(args.save_path)
+
 
 if __name__ == "__main__":
     main()

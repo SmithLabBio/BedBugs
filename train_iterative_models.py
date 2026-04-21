@@ -17,6 +17,7 @@ def parse_arguments():
     parser.add_argument('--finetune_csv', type=str, help="Path to the finetuning data.")
     parser.add_argument('--finetune_epochs', type=int, default=5, help="Epochs for fine-tuning.")
     parser.add_argument('--finetune_lr', type=float, default=1e-4, help="Learning rate for fine-tuning.")
+    parser.add_argument('--save_path', type=str, default="finetune_model.keras", help="Path to save the trained model.")
     return parser.parse_args()
 
 def load_image(image_path, label, imHeight, imWid):
@@ -104,6 +105,7 @@ def evaluate_cnn(model, val_data):
 def main():
     args = parse_arguments()
     training_data = prepare_data(args.train_csv, args.im_height, args.im_width)
+    finetune_data = prepare_data(args.finetune_csv, args.im_height, args.im_width)
     val_data_dict = {name: prepare_data(path, args.im_height, args.im_width) for name, path in parse_val_csvs(args.val_csvs).items()}
 
     # build CNN
@@ -113,13 +115,15 @@ def main():
     history = fit_cnn(model, training_data, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate)
 
     # finetune CNN
-    finetune_cnn(model, args.finetune_csv, epochs=args.finetune_epochs, batch_size=args.batch_size, learning_rate=args.finetune_lr, freeze_layers=True)
-
+    finetune_cnn(model, finetune_data, epochs=args.finetune_epochs, batch_size=args.batch_size, learning_rate=args.finetune_lr, freeze_layers=True)
 
     # validate CNN
     for name, val_data in val_data_dict.items():
         print(f"Evaluating on {name} validation set:")
         evaluate_cnn(model, val_data)
+
+    # save model
+    model.save(args.save_path)
 
 if __name__ == "__main__":
     main()
