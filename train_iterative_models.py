@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models
+from utils import load_image, parse_val_csvs, encode_labels, prepare_data, get_weights, batch_and_augment
 
 def parse_arguments():
     """Parses command-line arguments for training the CNN."""
@@ -18,40 +19,9 @@ def parse_arguments():
     parser.add_argument('--finetune_epochs', type=int, default=5, help="Epochs for fine-tuning.")
     parser.add_argument('--finetune_lr', type=float, default=1e-4, help="Learning rate for fine-tuning.")
     parser.add_argument('--save_path', type=str, default="finetune_model.keras", help="Path to save the trained model.")
+    parser.add_argument('--augment', action='store_true', help="Whether to apply data augmentation during training.")
+    parser.add_argument('--balance', action='store_true', help="Whether to balance classes during training.")
     return parser.parse_args()
-
-def load_image(image_path, label, imHeight, imWid):
-    """Reads an image from a file, decides it, resizes it, and normalizes the pixel values."""
-    image = tf.io.read_file(image_path)
-    image = tf.image.decode_jpeg(image, channels=3)
-    image = tf.image.resize(image, [imHeight, imWid])
-    image = tf.cast(image, tf.float32) / 255.0  # Normalize to [0,1]
-    return image, label
-
-def parse_val_csvs(val_list): 
-    val_dict = {}
-    for item in val_list:
-        if "=" not in item: 
-            raise ValueError(f"Invalid val_csv format: {item}. Use name=path")
-        name, path = item.split("=", 1)
-        val_dict[name] = path
-    return val_dict
-
-def encode_labels(labels):
-    """Encodes string labels into integer vectors."""
-    labels = np.array(labels)
-    encoded = (labels == "lectularius").astype(int)
-    return encoded
-
-def prepare_data(csv, imHeight, imWid):
-    raw_data = pd.read_csv(csv)
-    image_paths = raw_data["Path"].tolist()
-    labels = raw_data["species"].tolist()
-    encoded_labels = encode_labels(labels)
-    dataset = tf.data.Dataset.from_tensor_slices((image_paths, encoded_labels))
-    dataset = dataset.shuffle(buffer_size=len(image_paths), reshuffle_each_iteration=True)
-    dataset = dataset.map(lambda x, y: load_image(x, y, imHeight, imWid), num_parallel_calls=tf.data.AUTOTUNE, deterministic=False)
-    return dataset
 
 def build_cnn(imHeight, imWid):
     model = models.Sequential([
@@ -69,7 +39,6 @@ def build_cnn(imHeight, imWid):
     return model
 
 def fit_cnn(model, training_data, epochs, batch_size, learning_rate):
-    training_data = training_data.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
                   loss='binary_crossentropy',
                   metrics=['accuracy'])
@@ -107,6 +76,15 @@ def main():
     training_data = prepare_data(args.train_csv, args.im_height, args.im_width)
     finetune_data = prepare_data(args.finetune_csv, args.im_height, args.im_width)
     val_data_dict = {name: prepare_data(path, args.im_height, args.im_width) for name, path in parse_val_csvs(args.val_csvs).items()}
+
+    # compute class weights
+    if args.balance:
+        class_weights = get_weights(args.train_csv)
+    else:
+        class_weights = None
+
+    # batching and augmentation
+    training_data = batch_and_augment(training_data, args.batch_size, augment=args.augment)
 
     # build CNN
     model = build_cnn(args.im_height, args.im_width)
