@@ -40,7 +40,7 @@ def prepare_splits(metadata_path, outdir, test_size, val_size, seed, im_path):
         "Cimex_lectularius"
     )
     metadata["Path"] = metadata.apply(
-        lambda row: os.path.join(im_path, row["spName"], row["Filename"]),
+        lambda row: os.path.join(im_path, row["Filename"]),
         axis=1
     )
     sophie = metadata[metadata.source == "Sophie"]

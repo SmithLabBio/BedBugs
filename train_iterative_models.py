@@ -13,7 +13,10 @@ def parse_arguments():
     parser.add_argument('--im_height', type=int, default=256, help="Height of input images.")
     parser.add_argument('--im_width', type=int, default=256, help="Width of input images.")
     parser.add_argument('--train_csv', type=str, help="Path to the training data.")
-    parser.add_argument( "--val_csvs", nargs="*", default=[], help="Validation sets as name=path (e.g. sophie=path.csv inat=path.csv)" )
+    parser.add_argument('--val_csvs', nargs="*", default=[], help="Validation sets as name=path (e.g. sophie=path.csv inat=path.csv)")
+    parser.add_argument('--finetune_csv', type=str, help="Path to the finetuning data.")
+    parser.add_argument('--finetune_epochs', type=int, default=5, help="Epochs for fine-tuning.")
+    parser.add_argument('--finetune_lr', type=float, default=1e-4, help="Learning rate for fine-tuning.")
     return parser.parse_args()
 
 def load_image(image_path, label, imHeight, imWid):
@@ -74,6 +77,25 @@ def fit_cnn(model, training_data, epochs, batch_size, learning_rate):
 
     return history
 
+def finetune_cnn(model, finetune_data, epochs, batch_size, learning_rate, freeze_layers=True):
+    finetune_data = finetune_data.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+    if freeze_layers:
+        for layer in model.layers[:-2]:  # freeze all but last 2 layers
+            layer.trainable = False
+
+    # Recompile with lower LR
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+        loss='binary_crossentropy',
+        metrics=['accuracy']
+    )
+
+    print("\nStarting fine-tuning...")
+    history = model.fit(finetune_data, epochs=epochs)
+
+    return history
+
 def evaluate_cnn(model, val_data):
     val_data = val_data.batch(64).prefetch(tf.data.AUTOTUNE)
     results = model.evaluate(val_data)
@@ -89,6 +111,10 @@ def main():
 
     # train CNN
     history = fit_cnn(model, training_data, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate)
+
+    # finetune CNN
+    finetune_cnn(model, args.finetune_csv, epochs=args.finetune_epochs, batch_size=args.batch_size, learning_rate=args.finetune_lr, freeze_layers=True)
+
 
     # validate CNN
     for name, val_data in val_data_dict.items():

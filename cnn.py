@@ -14,7 +14,7 @@ import numpy as np
 def parse_arguments():
     """Parses command-line arguments for training the CNN."""
     parser = argparse.ArgumentParser(description="Train a CNN for bed bug classification.")
-    parser.add_argument('--batch_size', type=int, default=4, help="Batch size for training.")
+    parser.add_argument('--batch_size', type=int, default=64, help="Batch size for training.")
     parser.add_argument('--im_height', type=int, default=256, help="Height of input images.")
     parser.add_argument('--im_width', type=int, default=256, help="Width of input images.")
     parser.add_argument('--path', type=str, help="Path to the metadata file.")
