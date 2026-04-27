@@ -38,16 +38,19 @@ def build_cnn(imHeight, imWid):
     ])
     return model
 
-def fit_cnn(model, training_data, epochs, batch_size, learning_rate):
+def fit_cnn(model, training_data, epochs, batch_size, learning_rate, balance=None):
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
                   loss='binary_crossentropy',
                   metrics=['accuracy'])
     print(model.summary())
-    history = model.fit(training_data, epochs=epochs)
+    if balance is not None:
+        history = model.fit(training_data, epochs=epochs, class_weight=balance)
+    else:
+        history = model.fit(training_data, epochs=epochs)
 
     return history
 
-def finetune_cnn(model, finetune_data, epochs, batch_size, learning_rate, freeze_layers=True):
+def finetune_cnn(model, finetune_data, epochs, batch_size, learning_rate, freeze_layers=True, balance=None):
     finetune_data = finetune_data.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
     if freeze_layers:
@@ -62,7 +65,10 @@ def finetune_cnn(model, finetune_data, epochs, batch_size, learning_rate, freeze
     )
 
     print("\nStarting fine-tuning...")
-    history = model.fit(finetune_data, epochs=epochs)
+    if balance is not None:
+        history = model.fit(training_data, epochs=epochs, class_weight=balance)
+    else:
+        history = model.fit(finetune_data, epochs=epochs)
 
     return history
 
@@ -90,10 +96,10 @@ def main():
     model = build_cnn(args.im_height, args.im_width)
 
     # train CNN
-    history = fit_cnn(model, training_data, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate)
+    history = fit_cnn(model, training_data, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate, balance=class_weights)
 
     # finetune CNN
-    finetune_cnn(model, finetune_data, epochs=args.finetune_epochs, batch_size=args.batch_size, learning_rate=args.finetune_lr, freeze_layers=True)
+    finetune_cnn(model, finetune_data, epochs=args.finetune_epochs, batch_size=args.batch_size, learning_rate=args.finetune_lr, freeze_layers=True, balance=class_weights)
 
     # validate CNN
     for name, val_data in val_data_dict.items():
